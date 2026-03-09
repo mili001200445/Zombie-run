@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>ZOMBIE RUN</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Creepster&display=swap" rel="stylesheet">
+<style>
+:root {
+  --blood: #ff1a1a;
+  --dark-blood: #8b0000;
+  --green: #39ff14;
+  --dim-green: #1a7a00;
+  --muted: #0d4a0d;
+  --bg: #050a05;
+  --panel: rgba(5,15,5,0.92);
+  --border: rgba(57,255,20,0.25);
+  --heart: #ff2244;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);}
+body{font-family:'Share Tech Mono',monospace;color:var(--green);}
+
+/* === MAP === */
+#map{position:fixed;inset:0;width:100%;height:100%;z-index:1;
+filter:hue-rotate(90deg) saturate(0.25) brightness(0.5);}
+.leaflet-tile-pane{filter:none;}
+
+/* === SCAN LINE OVERLAY === */
+#scanlines{position:fixed;inset:0;z-index:2;pointer-events:none;
+background:repeating-linear-gradient(0deg,rgba(0,0,0,0.07) 0px,rgba(0,0,0,0.07) 1px,transparent 1px,transparent 3px);
+animation:scanroll 8s linear infinite;}
+@keyframes scanroll{0%{background-position:0 0;}100%{background-position:0 60px;}}
+#vignette{position:fixed;inset:0;z-index:2;pointer-events:none;
+background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.75) 100%);}
+
+/* === HUD === */
+#hud{position:fixed;top:0;left:0;right:0;z-index:10;
+display:flex;justify-content:space-between;align-items:flex-start;
+padding:12px 14px;pointer-events:none;}
+.hud-box{background:var(–panel);border:1px solid var(–border);
+border-radius:4px;padding:8px 12px;backdrop-filter:blur(4px);}
+#lives{display:flex;gap:5px;font-size:1.3em;}
+.heart{color:var(–heart);text-shadow:0 0 8px var(–heart);transition:all 0.3s;}
+.heart.lost{opacity:0.2;filter:grayscale(1);}
+#timer-box{text-align:center;}
+#timer{font-size:1.6em;font-family:‘Creepster’,cursive;letter-spacing:2px;
+color:var(–green);text-shadow:0 0 12px var(–green);}
+#timer-label{font-size:0.55em;opacity:0.6;letter-spacing:3px;}
+#zombie-count-box{text-align:right;}
+#zcount{font-size:1.4em;color:var(–blood);text-shadow:0 0 10px var(–blood);}
+#zcount-label{font-size:0.55em;opacity:0.6;letter-spacing:3px;}
+
+/* === BOTTOM HUD === */
+#bottom-hud{position:fixed;bottom:0;left:0;right:0;z-index:10;
+display:flex;justify-content:space-between;align-items:flex-end;
+padding:10px 14px 18px;pointer-events:none;}
+#distance-box{background:var(–panel);border:1px solid var(–border);
+border-radius:4px;padding:8px 12px;backdrop-filter:blur(4px);}
+#distance{font-size:1.2em;color:var(–green);}
+#dist-label{font-size:0.55em;opacity:0.6;letter-spacing:3px;}
+#closest-zombie-box{background:var(–panel);border:1px solid var(–border);
+border-radius:4px;padding:8px 12px;backdrop-filter:blur(4px);}
+#closest{font-size:1.2em;color:var(–blood);}
+#closest-label{font-size:0.55em;opacity:0.6;letter-spacing:3px;}
+#settings-btn{background:var(–panel);border:1px solid var(–border);
+border-radius:4px;padding:10px 14px;font-size:1.2em;cursor:pointer;
+pointer-events:all;backdrop-filter:blur(4px);transition:all 0.2s;}
+#settings-btn:active{background:rgba(57,255,20,0.15);}
+
+/* === SCREENS === */
+.screen{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+align-items:center;justify-content:center;padding:30px;
+background:radial-gradient(ellipse at center,rgba(0,20,0,0.97) 0%,rgba(0,5,0,0.99) 100%);}
+.screen.hidden{display:none;}
+
+/* === START SCREEN === */
+#start-screen{gap:0;}
+.title-block{text-align:center;margin-bottom:20px;}
+.title-zombie{font-family:‘Creepster’,cursive;font-size:5em;color:var(–blood);
+text-shadow:0 0 30px var(–blood),0 0 60px rgba(139,0,0,0.4);
+line-height:1;animation:flicker 4s infinite;}
+.title-run{font-family:‘Creepster’,cursive;font-size:3.5em;color:var(–green);
+text-shadow:0 0 20px var(–green);letter-spacing:12px;line-height:1;}
+@keyframes flicker{0%,95%,100%{opacity:1;}96%{opacity:0.7;}97%{opacity:1;}98%{opacity:0.5;}99%{opacity:1;}}
+.subtitle{font-size:0.65em;opacity:0.5;letter-spacing:4px;margin-top:6px;}
+
+.settings-panel{width:100%;max-width:380px;background:var(–panel);
+border:1px solid var(–border);border-radius:8px;padding:20px;margin:16px 0;}
+.setting-row{display:flex;align-items:center;justify-content:space-between;
+padding:10px 0;border-bottom:1px solid rgba(57,255,20,0.1);}
+.setting-row:last-child{border-bottom:none;}
+.setting-label{font-size:0.75em;letter-spacing:2px;opacity:0.8;}
+.setting-value{color:var(–green);font-size:0.9em;min-width:60px;text-align:right;}
+input[type=range]{-webkit-appearance:none;appearance:none;
+background:linear-gradient(to right,var(–green) 0%,var(–green) var(–val,50%),var(–muted) var(–val,50%),var(–muted) 100%);
+height:3px;border-radius:2px;width:130px;cursor:pointer;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;
+width:16px;height:16px;border-radius:50%;background:var(–green);
+box-shadow:0 0 8px var(–green);cursor:pointer;}
+select{background:var(–bg);color:var(–green);border:1px solid var(–border);
+border-radius:4px;padding:4px 8px;font-family:‘Share Tech Mono’,monospace;
+font-size:0.8em;cursor:pointer;}
+
+.btn-main{font-family:‘Creepster’,cursive;font-size:2em;letter-spacing:4px;
+background:transparent;border:2px solid var(–blood);color:var(–blood);
+padding:14px 40px;border-radius:6px;cursor:pointer;margin-top:8px;
+text-shadow:0 0 10px var(–blood);box-shadow:0 0 20px rgba(255,26,26,0.2);
+transition:all 0.2s;width:100%;max-width:280px;}
+.btn-main:active{background:rgba(255,26,26,0.15);box-shadow:0 0 30px rgba(255,26,26,0.4);}
+.btn-secondary{font-family:‘Share Tech Mono’,monospace;font-size:0.8em;letter-spacing:2px;
+background:transparent;border:1px solid var(–border);color:var(–green);
+padding:10px 24px;border-radius:4px;cursor:pointer;margin-top:8px;
+transition:all 0.2s;width:100%;max-width:280px;}
+.btn-secondary:active{background:rgba(57,255,20,0.1);}
+
+/* === MODAL SETTINGS (in-game) === */
+#settings-modal{position:fixed;inset:0;z-index:25;display:flex;align-items:center;
+justify-content:center;background:rgba(0,0,0,0.85);backdrop-filter:blur(4px);}
+#settings-modal.hidden{display:none;}
+.modal-box{background:var(–panel);border:1px solid var(–border);border-radius:8px;
+padding:24px;width:90%;max-width:360px;max-height:90vh;overflow-y:auto;}
+.modal-title{font-family:‘Creepster’,cursive;font-size:1.8em;color:var(–blood);
+text-align:center;margin-bottom:16px;letter-spacing:3px;}
+.modal-close{display:block;margin:16px auto 0;font-family:‘Share Tech Mono’,monospace;
+font-size:0.8em;letter-spacing:2px;background:transparent;
+border:1px solid var(–border);color:var(–green);padding:10px 24px;
+border-radius:4px;cursor:pointer;width:100%;}
+
+/* === GAME OVER / WIN SCREENS === */
+#gameover-screen,#win-screen{gap:16px;}
+.result-title{font-family:‘Creepster’,cursive;text-align:center;}
+#gameover-screen .result-title{font-size:4.5em;color:var(–blood);
+text-shadow:0 0 40px var(–blood),0 0 80px rgba(139,0,0,0.5);
+animation:shake 0.5s ease 0s 3;}
+#win-screen .result-title{font-size:4em;color:var(–green);
+text-shadow:0 0 30px var(–green);}
+@keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-8px);}75%{transform:translateX(8px);}}
+.result-stats{background:var(–panel);border:1px solid var(–border);
+border-radius:8px;padding:16px 24px;width:100%;max-width:320px;}
+.stat-row{display:flex;justify-content:space-between;padding:6px 0;
+border-bottom:1px solid rgba(57,255,20,0.1);font-size:0.8em;}
+.stat-row:last-child{border-bottom:none;}
+.stat-val{color:var(–green);}
+
+/* === ALERT PULSE === */
+#danger-pulse{position:fixed;inset:0;z-index:15;pointer-events:none;
+border:4px solid var(–blood);opacity:0;border-radius:0;
+box-shadow:inset 0 0 60px rgba(255,26,26,0.3);}
+.pulsing{animation:dangerpulse 0.6s ease-out 3;}
+@keyframes dangerpulse{0%{opacity:0;}50%{opacity:1;}100%{opacity:0;}}
+
+/* === IMMUNITY FLASH === */
+#immunity-overlay{position:fixed;inset:0;z-index:16;pointer-events:none;
+background:rgba(57,255,20,0.05);opacity:0;}
+.immunity-active{animation:immunityflash 2s ease infinite!important;}
+@keyframes immunityflash{0%,100%{opacity:0;}50%{opacity:1;}}
+
+/* === GPS LOADING === */
+#gps-screen{gap:16px;}
+.gps-icon{font-size:3em;animation:pulse-gps 1s ease infinite;}
+@keyframes pulse-gps{0%,100%{transform:scale(1);opacity:1;}50%{transform:scale(1.2);opacity:0.6;}}
+.gps-text{font-size:0.8em;letter-spacing:3px;opacity:0.7;text-align:center;}
+
+/* === CUSTOM LEAFLET MARKERS === */
+.player-marker{width:20px;height:20px;border-radius:50%;
+background:radial-gradient(circle,#ffffff 0%,var(–green) 60%,transparent 100%);
+box-shadow:0 0 0 3px rgba(57,255,20,0.4),0 0 20px var(–green);
+animation:player-pulse 1.5s ease infinite;}
+@keyframes player-pulse{0%,100%{box-shadow:0 0 0 3px rgba(57,255,20,0.4),0 0 20px var(–green);}50%{box-shadow:0 0 0 8px rgba(57,255,20,0.1),0 0 30px var(–green);}}
+.zombie-marker{width:16px;height:16px;border-radius:50%;
+background:radial-gradient(circle,#ff6666 0%,var(–blood) 70%,transparent 100%);
+box-shadow:0 0 0 2px rgba(255,26,26,0.3),0 0 12px var(–blood);
+animation:zombie-pulse 0.8s ease infinite alternate;}
+@keyframes zombie-pulse{0%{box-shadow:0 0 0 2px rgba(255,26,26,0.3),0 0 12px var(–blood);}100%{box-shadow:0 0 0 4px rgba(255,26,26,0.1),0 0 20px var(–blood);}}
+.catch-radius-circle{stroke:rgba(255,26,26,0.5);stroke-width:2;fill:rgba(255,26,26,0.05);stroke-dasharray:4,4;}
+
+/* === NOTIFY === */
+#notify{position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:30;
+background:var(–panel);border:1px solid var(–blood);border-radius:4px;
+padding:10px 20px;font-size:0.8em;letter-spacing:2px;color:var(–blood);
+opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap;}
+#notify.show{opacity:1;}
+
+/* === RADAR RING (spawn indicator) === */
+@keyframes radar-ring{0%{transform:scale(0.5);opacity:0.8;}100%{transform:scale(2.5);opacity:0;}}
+.radar-ring{position:fixed;width:40px;height:40px;border-radius:50%;
+border:2px solid var(–blood);pointer-events:none;z-index:19;
+animation:radar-ring 1s ease-out forwards;}
+</style>
+
+</head>
+<body>
+
+<!-- MAP -->
+
+<div id="map"></div>
+
+<!-- OVERLAYS -->
+
+<div id="scanlines"></div>
+<div id="vignette"></div>
+<div id="danger-pulse"></div>
+<div id="immunity-overlay"></div>
+
+<!-- NOTIFICATION -->
+
+<div id="notify"></div>
+
+<!-- HUD -->
+
+<div id="hud" class="hidden">
+  <div class="hud-box">
+    <div id="lives">
+      <span class="heart" id="h1">♥</span>
+      <span class="heart" id="h2">♥</span>
+      <span class="heart" id="h3">♥</span>
+    </div>
+    <div style="font-size:0.5em;opacity:0.5;letter-spacing:2px;margin-top:3px;">LIVES</div>
+  </div>
+  <div class="hud-box" id="timer-box">
+    <div id="timer">00:00</div>
+    <div id="timer-label">SURVIVED</div>
+  </div>
+  <div class="hud-box" id="zombie-count-box">
+    <div id="zcount">0</div>
+    <div id="zcount-label">ZOMBIES</div>
+  </div>
+</div>
+
+<div id="bottom-hud" class="hidden">
+  <div id="distance-box" class="hud-box">
+    <div id="distance">0 m</div>
+    <div id="dist-label">DISTANCE</div>
+  </div>
+  <div id="settings-btn" onclick="openSettings()">⚙</div>
+  <div id="closest-zombie-box" class="hud-box">
+    <div id="closest">-- m</div>
+    <div id="closest-label">CLOSEST</div>
+  </div>
+</div>
+
+<!-- === START SCREEN === -->
+
+<div class="screen" id="start-screen">
+  <div class="title-block">
+    <div class="title-zombie">ZOMBIE</div>
+    <div class="title-run">RUN</div>
+    <div class="subtitle">SURVIVE OR BE EATEN</div>
+  </div>
+
+  <div class="settings-panel">
+    <div class="setting-row">
+      <span class="setting-label">🧟 ZOMBIES</span>
+      <input type="range" id="s-zombies" min="1" max="10" value="3" oninput="updateSlider(this,'sv-zombies')">
+      <span class="setting-value" id="sv-zombies">3</span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">💀 ZOMBIE-SPEED</span>
+      <input type="range" id="s-speed" min="10" max="50" value="15" oninput="updateSlider(this,'sv-speed',0.1)">
+      <span class="setting-value" id="sv-speed">1.5 m/s</span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">🎯 FANGRADIUS</span>
+      <input type="range" id="s-radius" min="5" max="50" value="15" oninput="updateSlider(this,'sv-radius',1,'m')">
+      <span class="setting-value" id="sv-radius">15 m</span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">📍 SPAWNABSTAND</span>
+      <input type="range" id="s-spawn" min="100" max="600" step="50" value="200" oninput="updateSlider(this,'sv-spawn',1,'m')">
+      <span class="setting-value" id="sv-spawn">200 m</span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">⏱ ZIEL</span>
+      <select id="s-goal">
+        <option value="300">5 MIN</option>
+        <option value="600" selected>10 MIN</option>
+        <option value="900">15 MIN</option>
+        <option value="0">∞ ENDLOS</option>
+      </select>
+      <span></span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">🛣 STRASSEN-KI</span>
+      <select id="s-roads">
+        <option value="1" selected>AN</option>
+        <option value="0">AUS (direkt)</option>
+      </select>
+      <span></span>
+    </div>
+  </div>
+
+<button class="btn-main" onclick="startGame()">⚡ START</button>
+<button class="btn-secondary" onclick="showHow()">? WIE SPIELEN</button>
+
+  <div style="font-size:0.5em;opacity:0.3;margin-top:16px;text-align:center;letter-spacing:2px;">GPS ERFORDERLICH • DRAUSSEN SPIELEN</div>
+</div>
+
+<!-- GPS LOADING SCREEN -->
+
+<div class="screen hidden" id="gps-screen">
+  <div class="gps-icon">📡</div>
+  <div style="font-family:'Creepster',cursive;font-size:2em;letter-spacing:4px;">GPS SUCHEN</div>
+  <div class="gps-text">STANDORT WIRD ERMITTELT...<br>BITTE WARTE</div>
+  <div id="gps-error" style="color:var(--blood);font-size:0.7em;text-align:center;margin-top:12px;letter-spacing:2px;"></div>
+  <button class="btn-secondary" onclick="retryGPS()" style="margin-top:20px;max-width:200px;">↺ RETRY</button>
+  <button class="btn-secondary" onclick="showScreen('start-screen')" style="max-width:200px;">← ZURÜCK</button>
+</div>
+
+<!-- HOW TO PLAY -->
+
+<div class="screen hidden" id="how-screen">
+  <div style="font-family:'Creepster',cursive;font-size:2.5em;color:var(--blood);margin-bottom:20px;letter-spacing:3px;">WIE SPIELEN</div>
+  <div style="max-width:340px;line-height:1.8;font-size:0.75em;opacity:0.8;letter-spacing:1px;">
+    🧟 <b style="color:var(--blood)">ROTE PUNKTE</b> = Zombies<br>
+    🟢 <b style="color:var(--green)">GRÜNER PUNKT</b> = Du<br><br>
+    • Bewege dich physisch mit dem Smartphone<br>
+    • GPS trackt deinen Standort in Echtzeit<br>
+    • Zombies folgen dir auf Straßen & Wegen<br>
+    • Wirst du gefangen: ❤ Leben verloren<br>
+    • 3 Leben — dann ist es vorbei 💀<br>
+    • Überlebe die eingestellte Zeit = WIN!<br><br>
+    <span style="opacity:0.5">Tipp: Nutze Kurven & Sackgassen um<br>Zombies abzuhängen. Lauf schnell!</span>
+  </div>
+  <button class="btn-secondary" onclick="showScreen('start-screen')" style="margin-top:24px;max-width:200px;">← ZURÜCK</button>
+</div>
+
+<!-- GAME OVER -->
+
+<div class="screen hidden" id="gameover-screen">
+  <div class="result-title">GAME<br>OVER</div>
+  <div class="result-stats">
+    <div class="stat-row"><span>⏱ ÜBERLEBT</span><span class="stat-val" id="go-time">-</span></div>
+    <div class="stat-row"><span>📏 GELAUFEN</span><span class="stat-val" id="go-dist">-</span></div>
+    <div class="stat-row"><span>🧟 BEGEGNET</span><span class="stat-val" id="go-encounters">-</span></div>
+  </div>
+  <button class="btn-main" onclick="restartGame()" style="margin-top:8px;">↺ NOCHMAL</button>
+  <button class="btn-secondary" onclick="showScreen('start-screen')">← MENÜ</button>
+</div>
+
+<!-- WIN -->
+
+<div class="screen hidden" id="win-screen">
+  <div class="result-title" style="font-size:3em;">🏆<br>ÜBERLEBT!</div>
+  <div style="font-size:0.7em;letter-spacing:3px;opacity:0.7;text-align:center;">DU HAST DIE ZOMBIES ABGEHÄNGT!</div>
+  <div class="result-stats">
+    <div class="stat-row"><span>⏱ ZEIT</span><span class="stat-val" id="win-time">-</span></div>
+    <div class="stat-row"><span>📏 GELAUFEN</span><span class="stat-val" id="win-dist">-</span></div>
+    <div class="stat-row"><span>🧟 BEGEGNET</span><span class="stat-val" id="win-encounters">-</span></div>
+  </div>
+  <button class="btn-main" onclick="restartGame()">↺ NOCHMAL</button>
+  <button class="btn-secondary" onclick="showScreen('start-screen')">← MENÜ</button>
+</div>
+
+<!-- IN-GAME SETTINGS MODAL -->
+
+<div id="settings-modal" class="hidden">
+  <div class="modal-box">
+    <div class="modal-title">EINSTELLUNGEN</div>
+    <div class="setting-row">
+      <span class="setting-label">💀 ZOMBIE-SPEED</span>
+      <input type="range" id="m-speed" min="10" max="50" value="15" oninput="updateSlider(this,'mv-speed',0.1)">
+      <span class="setting-value" id="mv-speed">1.5 m/s</span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">🎯 FANGRADIUS</span>
+      <input type="range" id="m-radius" min="5" max="50" value="15" oninput="updateSlider(this,'mv-radius',1,'m')">
+      <span class="setting-value" id="mv-radius">15 m</span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">🧟 ZOMBIES</span>
+      <input type="range" id="m-zombies" min="1" max="10" value="3" oninput="updateSlider(this,'mv-zombies')">
+      <span class="setting-value" id="mv-zombies">3</span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">🛣 STRASSEN-KI</span>
+      <select id="m-roads">
+        <option value="1" selected>AN</option>
+        <option value="0">AUS</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button class="btn-secondary" onclick="applyInGameSettings()" style="max-width:none;flex:1;">✓ ÜBERNEHMEN</button>
+      <button class="modal-close" onclick="closeSettings()" style="margin:0;flex:1;">✕ SCHLIESSEN</button>
+    </div>
+    <button class="btn-secondary" onclick="confirmQuit()" style="margin-top:8px;border-color:var(--blood);color:var(--blood);">⏹ SPIEL BEENDEN</button>
+  </div>
+</div>
+
+<script>
+// ===== SETTINGS =====
+let settings = {
+  numZombies: 3,
+  zombieSpeed: 1.5,   // m/s
+  catchRadius: 15,    // meters
+  spawnDist: 200,     // meters
+  goalSeconds: 600,   // 0 = endless
+  useRoads: true,
+};
+
+// ===== GAME STATE =====
+let map, playerMarker, playerCircle;
+let zombies = [];
+let lives = 3;
+let gameActive = false;
+let immunity = false;
+let immunityTimer = null;
+let startTime = null;
+let elapsedSeconds = 0;
+let totalDistance = 0;
+let lastPos = null;
+let encounters = 0;
+let gameLoop = null;
+let timerInterval = null;
+let geoWatch = null;
+let playerLat = null, playerLng = null;
+let routeCache = {};
+let lastRouteUpdate = {};
+
+// ===== AUDIO (Web Audio API) =====
+let audioCtx = null;
+function getAudio() {
+  if (!audioCtx) try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){}
+  return audioCtx;
+}
+function playTone(freq, dur, type='sine', vol=0.15) {
+  try {
+    const ac = getAudio(); if(!ac) return;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.type = type; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+    osc.start(); osc.stop(ac.currentTime + dur);
+  } catch(e){}
+}
+function playDanger() { playTone(220,0.3,'sawtooth',0.2); setTimeout(()=>playTone(180,0.4,'sawtooth',0.2),200); }
+function playCaught() {
+  [300,250,200,150].forEach((f,i) => setTimeout(()=>playTone(f,0.3,'sawtooth',0.3), i*150));
+}
+function playWin() {
+  [523,659,784,1047].forEach((f,i) => setTimeout(()=>playTone(f,0.4,'sine',0.2), i*180));
+}
+
+// ===== UTILS =====
+function haversine(lat1,lng1,lat2,lng2) {
+  const R=6371000, dLat=(lat2-lat1)*Math.PI/180, dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function bearing(lat1,lng1,lat2,lng2) {
+  const dL=(lng2-lng1)*Math.PI/180, φ1=lat1*Math.PI/180, φ2=lat2*Math.PI/180;
+  const y=Math.sin(dL)*Math.cos(φ2), x=Math.cos(φ1)*Math.sin(φ2)-Math.sin(φ1)*Math.cos(φ2)*Math.cos(dL);
+  return Math.atan2(y,x);
+}
+function movePoint(lat,lng,bear,dist) {
+  const R=6371000, δ=dist/R, φ1=lat*Math.PI/180, λ1=lng*Math.PI/180;
+  const φ2=Math.asin(Math.sin(φ1)*Math.cos(δ)+Math.cos(φ1)*Math.sin(δ)*Math.cos(bear));
+  const λ2=λ1+Math.atan2(Math.sin(bear)*Math.sin(δ)*Math.cos(φ1),Math.cos(δ)-Math.sin(φ1)*Math.sin(φ2));
+  return [φ2*180/Math.PI, λ2*180/Math.PI];
+}
+function randomBearing() { return Math.random()*2*Math.PI; }
+function formatTime(s) {
+  const m=Math.floor(s/60), sec=s%60;
+  return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+function formatDist(m) { return m>=1000 ? (m/1000).toFixed(2)+' km' : Math.round(m)+' m'; }
+
+// ===== UI =====
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+}
+function showNotify(msg, dur=2000) {
+  const n=document.getElementById('notify');
+  n.textContent=msg; n.classList.add('show');
+  setTimeout(()=>n.classList.remove('show'), dur);
+}
+function updateSlider(el, valId, mult=1, suffix='') {
+  const v = mult===0.1 ? (el.value*0.1).toFixed(1)+' m/s' : el.value*mult + (suffix?' '+suffix:'');
+  document.getElementById(valId).textContent = v;
+  const pct = (el.value-el.min)/(el.max-el.min)*100;
+  el.style.setProperty('--val', pct+'%');
+}
+function openSettings() { document.getElementById('settings-modal').classList.remove('hidden'); }
+function closeSettings() { document.getElementById('settings-modal').classList.add('hidden'); }
+function showHow() { showScreen('how-screen'); }
+
+function confirmQuit() {
+  if(confirm('Spiel wirklich beenden?')) { endGame(false); }
+}
+
+// Sync modal sliders with start settings on open
+function applyInGameSettings() {
+  settings.zombieSpeed = parseFloat(document.getElementById('m-speed').value)*0.1;
+  settings.catchRadius = parseInt(document.getElementById('m-radius').value);
+  settings.numZombies = parseInt(document.getElementById('m-zombies').value);
+  settings.useRoads = document.getElementById('m-roads').value === '1';
+  // Adjust zombie count
+  adjustZombieCount();
+  closeSettings();
+  showNotify('✓ EINSTELLUNGEN ÜBERNOMMEN');
+}
+
+// ===== MAP SETUP =====
+function initMap(lat, lng) {
+  if(map) return;
+  map = L.map('map', {
+    center:[lat,lng], zoom:17, zoomControl:false,
+    attributionControl:false, maxZoom:19
+  });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom:19, subdomains:'abcd'
+  }).addTo(map);
+
+  // Player marker
+  const playerIcon = L.divIcon({className:'', html:'<div class="player-marker"></div>', iconSize:[20,20], iconAnchor:[10,10]});
+  playerMarker = L.marker([lat,lng], {icon:playerIcon, zIndexOffset:1000}).addTo(map);
+  map.panTo([lat,lng]);
+}
+
+function updatePlayerOnMap(lat, lng) {
+  if(!map) return;
+  playerMarker.setLatLng([lat,lng]);
+  map.panTo([lat,lng], {animate:true, duration:0.5});
+}
+
+// ===== ZOMBIE CLASS =====
+class Zombie {
+  constructor(lat, lng, id) {
+    this.id = id;
+    this.lat = lat;
+    this.lng = lng;
+    this.path = [];
+    this.pathIdx = 0;
+    this.lastRouteTime = 0;
+    this.routePending = false;
+    const zombieIcon = L.divIcon({className:'', html:'<div class="zombie-marker"></div>', iconSize:[16,16], iconAnchor:[8,8]});
+    this.marker = L.marker([lat,lng], {icon:zombieIcon}).addTo(map);
+  }
+
+  async fetchRoute(pLat, pLng) {
+    if(this.routePending) return;
+    this.routePending = true;
+    try {
+      const url = `https://router.project-osrm.org/route/v1/foot/${this.lng},${this.lat};${pLng},${pLat}?overview=full&geometries=geojson&steps=false`;
+      const resp = await fetch(url, {signal: AbortSignal.timeout(5000)});
+      const data = await resp.json();
+      if(data.routes && data.routes[0]) {
+        this.path = data.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+        this.pathIdx = 0;
+      }
+    } catch(e) {
+      // fallback: direct path
+      this.path = [[pLat,pLng]];
+      this.pathIdx = 0;
+    }
+    this.routePending = false;
+    this.lastRouteTime = Date.now();
+  }
+
+  move(dt) {
+    if(!playerLat) return;
+    const now = Date.now();
+
+    // Refresh route every 8 seconds or if path exhausted
+    if(settings.useRoads && (now - this.lastRouteTime > 8000 || this.pathIdx >= this.path.length)) {
+      this.fetchRoute(playerLat, playerLng);
+    }
+
+    const speed = settings.zombieSpeed;
+    const moveMeters = speed * dt / 1000;
+
+    let target;
+    if(this.path.length > 0 && this.pathIdx < this.path.length) {
+      target = this.path[this.pathIdx];
+    } else {
+      target = [playerLat, playerLng];
+    }
+
+    const dist = haversine(this.lat, this.lng, target[0], target[1]);
+    if(dist < Math.max(moveMeters, 2)) {
+      this.lat = target[0]; this.lng = target[1];
+      this.pathIdx++;
+    } else {
+      const b = bearing(this.lat, this.lng, target[0], target[1]);
+      const [nLat, nLng] = movePoint(this.lat, this.lng, b, moveMeters);
+      this.lat = nLat; this.lng = nLng;
+    }
+    this.marker.setLatLng([this.lat, this.lng]);
+  }
+
+  remove() { if(this.marker) map.removeLayer(this.marker); }
+}
+
+// ===== SPAWN ZOMBIE =====
+function spawnZombie(id) {
+  if(!playerLat) return null;
+  const bear = randomBearing();
+  const dist = settings.spawnDist + Math.random()*100;
+  const [lat,lng] = movePoint(playerLat, playerLng, bear, dist);
+  return new Zombie(lat, lng, id);
+}
+
+function adjustZombieCount() {
+  while(zombies.length < settings.numZombies) {
+    zombies.push(spawnZombie(Date.now()+zombies.length));
+  }
+  while(zombies.length > settings.numZombies) {
+    const z = zombies.pop(); z.remove();
+  }
+}
+
+// ===== LIVES =====
+function updateLivesUI() {
+  for(let i=1;i<=3;i++) {
+    document.getElementById('h'+i).classList.toggle('lost', i>lives);
+  }
+}
+
+function loseLife() {
+  if(immunity) return;
+  lives--;
+  encounters++;
+  playCaught();
+  updateLivesUI();
+  if(lives <= 0) { endGame(false); return; }
+  // Grant immunity 8 seconds
+  immunity = true;
+  document.getElementById('immunity-overlay').classList.add('immunity-active');
+  document.getElementById('danger-pulse').classList.add('pulsing');
+  setTimeout(()=>document.getElementById('danger-pulse').classList.remove('pulsing'),2000);
+  showNotify('❤ LEBEN VERLOREN! IMMUNITÄT 8s');
+  clearTimeout(immunityTimer);
+  immunityTimer = setTimeout(()=>{
+    immunity = false;
+    document.getElementById('immunity-overlay').classList.remove('immunity-active');
+  }, 8000);
+}
+
+// ===== GAME LOOP =====
+let lastTick = null;
+function tick() {
+  if(!gameActive) return;
+  const now = Date.now();
+  const dt = lastTick ? now - lastTick : 16;
+  lastTick = now;
+
+  // Move zombies
+  let closestDist = Infinity;
+  zombies.forEach(z => {
+    z.move(dt);
+    const d = haversine(z.lat, z.lng, playerLat||0, playerLng||0);
+    if(d < closestDist) closestDist = d;
+    // Danger sound if close
+    if(d < settings.catchRadius*3 && Math.random()<0.01) playDanger();
+    // Caught!
+    if(d < settings.catchRadius) loseLife();
+  });
+
+  // Update closest display
+  document.getElementById('closest').textContent = closestDist === Infinity ? '-- m' : formatDist(closestDist);
+
+  // Respawn zombies that are too close (after immunity spawn far)
+  zombies.forEach((z,i)=>{
+    const d = haversine(z.lat,z.lng,playerLat,playerLng);
+    if(d < settings.catchRadius*0.5 && immunity) {
+      z.remove();
+      zombies[i] = spawnZombie(z.id+1);
+    }
+  });
+
+  gameLoop = requestAnimationFrame(tick);
+}
+
+// ===== TIMER =====
+function startTimer() {
+  startTime = Date.now() - elapsedSeconds*1000;
+  timerInterval = setInterval(()=>{
+    if(!gameActive) return;
+    elapsedSeconds = Math.floor((Date.now()-startTime)/1000);
+    document.getElementById('timer').textContent = formatTime(elapsedSeconds);
+    // Win condition
+    if(settings.goalSeconds > 0 && elapsedSeconds >= settings.goalSeconds) {
+      endGame(true);
+    }
+  }, 1000);
+}
+
+// ===== GEOLOCATION =====
+function startGeoWatch() {
+  if(!navigator.geolocation) {
+    document.getElementById('gps-error').textContent='GPS NICHT VERFÜGBAR';
+    return;
+  }
+  geoWatch = navigator.geolocation.watchPosition(
+    pos => {
+      const {latitude:lat, longitude:lng} = pos.coords;
+      if(lastPos) {
+        const d = haversine(lastPos[0],lastPos[1],lat,lng);
+        if(d < 500) { // ignore GPS jumps > 500m
+          totalDistance += d;
+          document.getElementById('distance').textContent = formatDist(totalDistance);
+        }
+      }
+      lastPos = [lat,lng];
+      playerLat = lat; playerLng = lng;
+      updatePlayerOnMap(lat,lng);
+      if(!gameActive) activateGame(lat,lng);
+    },
+    err => {
+      console.error(err);
+      document.getElementById('gps-error').textContent = 'FEHLER: '+err.message;
+    },
+    { enableHighAccuracy:true, maximumAge:1000, timeout:15000 }
+  );
+}
+
+// ===== START FLOW =====
+function startGame() {
+  // Read settings
+  settings.numZombies = parseInt(document.getElementById('s-zombies').value);
+  settings.zombieSpeed = parseFloat(document.getElementById('s-speed').value)*0.1;
+  settings.catchRadius = parseInt(document.getElementById('s-radius').value);
+  settings.spawnDist = parseInt(document.getElementById('s-spawn').value);
+  settings.goalSeconds = parseInt(document.getElementById('s-goal').value);
+  settings.useRoads = document.getElementById('s-roads').value==='1';
+
+  // Sync modal
+  document.getElementById('m-speed').value = document.getElementById('s-speed').value;
+  document.getElementById('mv-speed').textContent = settings.zombieSpeed.toFixed(1)+' m/s';
+  document.getElementById('m-radius').value = settings.catchRadius;
+  document.getElementById('mv-radius').textContent = settings.catchRadius+' m';
+  document.getElementById('m-zombies').value = settings.numZombies;
+  document.getElementById('mv-zombies').textContent = settings.numZombies;
+
+  showScreen('gps-screen');
+  startGeoWatch();
+}
+
+function activateGame(lat,lng) {
+  gameActive = true;
+  lives = 3; encounters = 0;
+  totalDistance = 0; elapsedSeconds = 0; lastPos = [lat,lng];
+  updateLivesUI();
+  document.getElementById('zcount').textContent = settings.numZombies;
+
+  initMap(lat, lng);
+  showScreen('');
+  document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
+  document.getElementById('hud').classList.remove('hidden');
+  document.getElementById('bottom-hud').classList.remove('hidden');
+
+  // Spawn zombies
+  zombies.forEach(z=>z.remove()); zombies=[];
+  for(let i=0;i<settings.numZombies;i++) {
+    setTimeout(()=>{
+      const z = spawnZombie(i);
+      if(z) zombies.push(z);
+    }, i*500);
+  }
+
+  lastTick = null;
+  startTimer();
+  gameLoop = requestAnimationFrame(tick);
+  showNotify('🧟 ZOMBIES SPAWNEN...', 3000);
+}
+
+function retryGPS() {
+  if(geoWatch) navigator.geolocation.clearWatch(geoWatch);
+  document.getElementById('gps-error').textContent='';
+  startGeoWatch();
+}
+
+// ===== END GAME =====
+function endGame(won) {
+  gameActive = false;
+  clearInterval(timerInterval);
+  cancelAnimationFrame(gameLoop);
+  if(immunityTimer) clearTimeout(immunityTimer);
+  if(geoWatch) { navigator.geolocation.clearWatch(geoWatch); geoWatch=null; }
+
+  const timeStr = formatTime(elapsedSeconds);
+  const distStr = formatDist(totalDistance);
+
+  if(won) {
+    playWin();
+    document.getElementById('win-time').textContent = timeStr;
+    document.getElementById('win-dist').textContent = distStr;
+    document.getElementById('win-encounters').textContent = encounters;
+    showScreen('win-screen');
+  } else {
+    document.getElementById('go-time').textContent = timeStr;
+    document.getElementById('go-dist').textContent = distStr;
+    document.getElementById('go-encounters').textContent = encounters;
+    showScreen('gameover-screen');
+  }
+
+  document.getElementById('hud').classList.add('hidden');
+  document.getElementById('bottom-hud').classList.add('hidden');
+  zombies.forEach(z=>z.remove()); zombies=[];
+}
+
+function restartGame() {
+  showScreen('start-screen');
+  if(map) { map.remove(); map=null; playerMarker=null; }
+  playerLat=null; playerLng=null; lastPos=null;
+}
+
+// ===== INIT SLIDERS =====
+document.querySelectorAll('input[type=range]').forEach(el => {
+  const pct = (el.value-el.min)/(el.max-el.min)*100;
+  el.style.setProperty('--val', pct+'%');
+});
+</script>
+
+</body>
+</html>
